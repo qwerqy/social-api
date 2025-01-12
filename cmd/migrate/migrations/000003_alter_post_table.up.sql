@@ -1,0 +1,3 @@
+ALTER TABLE
+  posts
+ADD CONSTRAINT fk_user FOREIGN KEY (User_id) REFERENCES users (id);
