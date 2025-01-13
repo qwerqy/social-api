@@ -17,6 +17,7 @@ import (
 	"github.com/qwerqy/social-api-go/docs"
 	"github.com/qwerqy/social-api-go/internal/auth"
 	"github.com/qwerqy/social-api-go/internal/mailer"
+	"github.com/qwerqy/social-api-go/internal/ratelimiter"
 	"github.com/qwerqy/social-api-go/internal/store"
 	"github.com/qwerqy/social-api-go/internal/store/cache"
 	httpSwagger "github.com/swaggo/http-swagger"
@@ -29,6 +30,7 @@ type application struct {
 	logger        *zap.SugaredLogger
 	mailer        mailer.Client
 	authenticator auth.Authenticator
+	rateLimiter   ratelimiter.Limiter
 }
 
 type config struct {
@@ -40,6 +42,7 @@ type config struct {
 	frontendURL string
 	auth        authConfig
 	redisCfg    redisConfig
+	rateLimiter ratelimiter.Config
 }
 
 type redisConfig struct {
@@ -90,10 +93,14 @@ func (app *application) mount() http.Handler {
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 
+	if app.config.rateLimiter.Enabled {
+		r.Use(app.RateLimiterMiddleware)
+	}
+
 	r.Use(middleware.Timeout(time.Second * 60))
 
 	r.Route("/v1", func(r chi.Router) {
-		r.With(app.BasicAuthMiddleware()).Get("/health", app.healthCheckHandler)
+		r.Get("/health", app.healthCheckHandler)
 
 		docsURL := fmt.Sprintf("%s/swagger/doc.json", app.config.addr)
 		r.Get("/swagger/*", httpSwagger.Handler(
@@ -176,7 +183,7 @@ func (app *application) run(mux http.Handler) error {
 		shutdown <- srv.Shutdown(ctx)
 	}()
 
-	app.logger.Infow("Server has started", "addr", app.config.addr, "env", app.config.env)
+	app.logger.Infow("server has started", "addr", app.config.addr, "env", app.config.env)
 
 	err := srv.ListenAndServe()
 	if !errors.Is(err, http.ErrServerClosed) {

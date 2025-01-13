@@ -7,6 +7,7 @@ import (
 	"github.com/qwerqy/social-api-go/internal/db"
 	"github.com/qwerqy/social-api-go/internal/env"
 	"github.com/qwerqy/social-api-go/internal/mailer"
+	"github.com/qwerqy/social-api-go/internal/ratelimiter"
 	"github.com/qwerqy/social-api-go/internal/store"
 	"github.com/qwerqy/social-api-go/internal/store/cache"
 	"github.com/redis/go-redis/v9"
@@ -70,6 +71,11 @@ func main() {
 				iss:    "social",
 			},
 		},
+		rateLimiter: ratelimiter.Config{
+			RequestsPerTimeFrame: env.GetInt("RATELIMITER_REQUESTS_COUNT", 20),
+			TimeFrame:            time.Second * 5,
+			Enabled:              env.GetBool("RATE_LIMITER_ENABLED", true),
+		},
 	}
 
 	// Logger
@@ -99,6 +105,11 @@ func main() {
 		logger.Info("Redis connection pool established")
 	}
 
+	rateLimiter := ratelimiter.NewFixedWindowRateLimiter(
+		cfg.rateLimiter.RequestsPerTimeFrame,
+		cfg.rateLimiter.TimeFrame,
+	)
+
 	store := store.NewStorage(db)
 
 	cacheStorage := cache.NewRedisStorage(rdb)
@@ -114,6 +125,7 @@ func main() {
 		logger:        logger,
 		mailer:        mailer,
 		authenticator: jwtAuthenticator,
+		rateLimiter:   rateLimiter,
 	}
 
 	mux := app.mount()
